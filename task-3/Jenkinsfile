@@ -1,0 +1,86 @@
+pipeline {
+    agent any
+    
+    environment {
+        DOCKER_REGISTRY = "registry.local:5000"
+        IMAGE_NAME = "myapp"
+        IMAGE_TAG = "${BUILD_NUMBER}"
+        KUBECONFIG = credentials('kubeconfig')
+        SONAR_TOKEN = credentials('sonar-token')
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+        
+        stage('SonarQube Analysis') {
+            steps {
+                script {
+                    def scannerHome = tool 'SonarScanner'
+                    withSonarQubeEnv('SonarQube') {
+                        sh "${scannerHome}/bin/sonar-scanner \
+                            -Dsonar.projectKey=myapp \
+                            -Dsonar.sources=. \
+                            -Dsonar.host.url=http://sonarqube:9000 \
+                            -Dsonar.login=${SONAR_TOKEN}"
+                    }
+                }
+            }
+        }
+        
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    docker.build("${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}")
+                }
+            }
+        }
+        
+        stage('Run Tests') {
+            steps {
+                sh 'npm run test'
+            }
+        }
+        
+        stage('Trivy Scan') {
+            steps {
+                sh "trivy image --format json --output trivy-results.json ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+            }
+            post {
+                always {
+                    archiveArtifacts 'trivy-results.json'
+                }
+            }
+        }
+        
+        stage('Push to Registry') {
+            steps {
+                script {
+                    docker.withRegistry("http://${DOCKER_REGISTRY}", 'registry-credentials') {
+                        docker.image("${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}").push()
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    sh """
+                        kubectl --kubeconfig=${KUBECONFIG} set image deployment/myapp myapp=${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+                        kubectl --kubeconfig=${KUBECONFIG} rollout status deployment/myapp
+                    """
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}

@@ -1,0 +1,20 @@
+---
+users:
+  - username: user-1
+    password: your_password
+    ssh_public_key: "ssh-rsa yourSSHKEY user-1@example.com"
+  - username: user-2
+    password: your_password
+    ssh_public_key: "ssh-rsa AAAAB3NzaC1yc2E... user-2@example.com"
+
+timezone: "Asia/Kathmandu"
+
+root_password: "yourRootPassword"
+
+nginx_vhosts:
+  - name: example.com
+    server_name: example.com www.example.com
+    root: /var/www/example.com
+  - name: test.com
+    server_name: test.com www.test.com
+    root: /var/www/test.com

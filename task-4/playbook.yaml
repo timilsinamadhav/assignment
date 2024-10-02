@@ -1,0 +1,78 @@
+---
+- name: Configure Linux machine and deploy Nginx
+  hosts: all
+  become: yes
+  vars_files:
+    - vars/main.yaml
+
+  tasks:
+    - name: Add new users
+      user:
+        name: "{{ item.username }}"
+        password: "{{ item.password | password_hash('sha512') }}"
+        groups: sudo
+        shell: /bin/bash
+        state: present
+      loop: "{{ users }}"
+
+    - name: Add SSH public keys for new users
+      authorized_key:
+        user: "{{ item.username }}"
+        key: "{{ item.ssh_public_key }}"
+      loop: "{{ users }}"
+
+    - name: Set timezone
+      timezone:
+        name: "{{ timezone }}"
+
+    - name: Set custom message of the day
+      template:
+        src: templates/motd
+        dest: /etc/motd
+
+    - name: Install NTP
+      package:
+        name: ntp
+        state: present
+
+    - name: Configure NTP servers
+      template:
+        src: templates/ntp.conf
+        dest: /etc/ntp.conf
+      notify: Restart NTP
+
+    - name: Change root password
+      user:
+        name: root
+        password: "{{ root_password | password_hash('sha512') }}"
+
+    - name: Install Nginx
+      package:
+        name: nginx
+        state: present
+
+    - name: Configure Nginx virtual hosts
+      template:
+        src: "templates/{{ item.name }}.conf"
+        dest: "/etc/nginx/sites-available/{{ item.name }}.conf"
+      loop: "{{ nginx_vhosts }}"
+      notify: Reload Nginx
+
+    - name: Enable Nginx virtual hosts
+      file:
+        src: "/etc/nginx/sites-available/{{ item.name }}.conf"
+        dest: "/etc/nginx/sites-enabled/{{ item.name }}.conf"
+        state: link
+      loop: "{{ nginx_vhosts }}"
+      notify: Reload Nginx
+
+  handlers:
+    - name: Restart NTP
+      service:
+        name: ntp
+        state: restarted
+
+    - name: Reload Nginx
+      service:
+        name: nginx
+        state: reloaded
